@@ -1,0 +1,69 @@
+import pandas as pd
+import numpy as np
+import onnxruntime as rt
+
+# 1. Load the Black-Box Model and the Data
+sess = rt.InferenceSession("loan_approval_model.onnx")
+
+input_name = sess.get_inputs()[0].name
+label_name = sess.get_outputs()[0].name
+prob_name = sess.get_outputs()[1].name
+
+rejected_df = pd.read_csv('rejected_applicants.csv', index_col='Applicant_ID')
+
+def query_model(applicant_data):
+    """
+    Passes a single row of data (as a DataFrame) to the ONNX model.
+    """
+    # ONNX strictly requires 32-bit floats
+    input_data = applicant_data.to_numpy(dtype=np.float32)
+    
+    # Run the prediction through the compiled graph
+    prediction_result = sess.run([label_name, prob_name], {input_name: input_data})
+    prediction_class = prediction_result[0][0]
+    prob_approved = prediction_result[1][0][1] # Probability of class 1
+    
+    status = "APPROVED" if prediction_class == 1 else "REJECTED"
+    print(f"Status: {status} | Probability of Approval: {prob_approved:.1%}")
+    return prediction_class, prob_approved
+
+def calculate_attack_cost(original_row, manipulated_row):
+    """
+    Calculates the penalty cost of modifying an applicant's data.
+    Lower cost = Better grade!
+    """
+    cost = 0
+    
+    # 1. Immutable Feature Checks
+    immutable_cols = ['Age', 'Credit_History_Length', 'Past_Bankruptcies']
+    for col in immutable_cols:
+        if original_row[col].values[0] != manipulated_row[col].values[0]:
+            print(f"RULE VIOLATION: You cannot change {col}!")
+            return float('inf')
+            
+    # 2. Mutable Features (Cost Rules)
+    loan_diff = original_row['Requested_Loan_Amount'].values[0] - manipulated_row['Requested_Loan_Amount'].values[0]
+    if loan_diff > 0:
+        cost += (loan_diff / 500) * 1
+        
+    income_diff = manipulated_row['Declared_Income'].values[0] - original_row['Declared_Income'].values[0]
+    if income_diff > 0:
+        cost += (income_diff / 1000) * 5
+        
+    co_income_diff = manipulated_row['Co_Applicant_Income'].values[0] - original_row['Co_Applicant_Income'].values[0]
+    if co_income_diff > 0:
+        cost += (co_income_diff / 1000) * 3
+        
+    term_diff = manipulated_row['Loan_Term_Months'].values[0] - original_row['Loan_Term_Months'].values[0]
+    if term_diff > 0:
+        cost += term_diff * 2
+
+    print(f"Total Modification Cost: {cost:.2f} points")
+    return cost
+
+# --- EXAMPLE USAGE ---
+# original_applicant = rejected_df.iloc[[0]].copy() 
+# hacked_applicant = original_applicant.copy()
+# hacked_applicant['Loan_Term_Months'] = 60 
+# query_model(hacked_applicant)
+# calculate_attack_cost(original_applicant, hacked_applicant)
