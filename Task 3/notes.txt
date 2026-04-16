@@ -1,0 +1,1 @@
+The probe ranked Applicant 33 first by local sensitivity, but the exhaustive search revealed it cannot be flipped under any reasonable cost budget — Past_Bankruptcies = 1 acts as an immutable hard barrier in the model. The cost-capped search on all applicants then correctly identified Applicant 13, who has no bankruptcy history, as the true minimum-cost target at cost 14.
